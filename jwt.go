@@ -10,126 +10,191 @@ package zjwt
 
 import (
     "fmt"
-    "strings"
     "time"
 
     "github.com/dgrijalva/jwt-go"
 )
 
 const (
-    DefaultSecret    = "123456"
-    DefaultAlgorithm = "HS256"
+    DefaultAlgorithm = HS256
 )
 
-var algorithmMapp = map[string]jwt.SigningMethod{
-    "HS256": jwt.SigningMethodHS256,
-    "HS384": jwt.SigningMethodHS384,
-    "HS512": jwt.SigningMethodHS512,
-    "ES256": jwt.SigningMethodES256,
-    "ES384": jwt.SigningMethodES384,
-    "ES512": jwt.SigningMethodES512,
-    "PS256": jwt.SigningMethodPS256,
-    "PS384": jwt.SigningMethodPS384,
-    "PS512": jwt.SigningMethodPS512,
-    "RS256": jwt.SigningMethodRS256,
-    "RS384": jwt.SigningMethodRS384,
-    "RS512": jwt.SigningMethodRS512,
+type Algorithm string
+
+const (
+    HS256 Algorithm = "HS256"
+    HS384           = "HS384"
+    HS512           = "HS512"
+    ES256           = "ES256"
+    ES384           = "ES384"
+    ES512           = "ES512"
+    PS256           = "PS256"
+    PS384           = "PS384"
+    PS512           = "PS512"
+    RS256           = "RS256"
+    RS384           = "RS384"
+    RS512           = "RS512"
+)
+
+var algorithmMapp = map[Algorithm]jwt.SigningMethod{
+    HS256: jwt.SigningMethodHS256,
+    HS384: jwt.SigningMethodHS384,
+    HS512: jwt.SigningMethodHS512,
+    ES256: jwt.SigningMethodES256,
+    ES384: jwt.SigningMethodES384,
+    ES512: jwt.SigningMethodES512,
+    PS256: jwt.SigningMethodPS256,
+    PS384: jwt.SigningMethodPS384,
+    PS512: jwt.SigningMethodPS512,
+    RS256: jwt.SigningMethodRS256,
+    RS384: jwt.SigningMethodRS384,
+    RS512: jwt.SigningMethodRS512,
+}
+var allAlgorithms = []Algorithm{
+    HS256,
+    HS384,
+    HS512,
+    ES256,
+    ES384,
+    ES512,
+    PS256,
+    PS384,
+    PS512,
+    RS256,
+    RS384,
+    RS512,
+}
+
+type jwtData struct {
+    jwt.StandardClaims
+    Payload interface{} `json:"a"`
 }
 
 type JWT struct {
-    jwt.StandardClaims
-    A         interface{}       `json:"a"`
-    secret    []byte            `json:"-"`
-    algorithm jwt.SigningMethod `json:"-"`
+    data *jwtData
 }
 
 // 创建一个jwt
 func New() *JWT {
-    return new(JWT).SetSecret(DefaultSecret).SetAlgorithm(DefaultAlgorithm)
-}
-
-// 设置秘钥
-func (m *JWT) SetSecret(secret string) *JWT {
-    if len(secret) == 0 {
-        panic("秘钥不能为空")
-    }
-    m.secret = []byte(secret)
-    return m
-}
-
-// 设置算法
-func (m *JWT) SetAlgorithm(algorithm string) *JWT {
-    a := algorithmMapp[strings.ToUpper(algorithm)]
-    if a == nil {
-        panic(fmt.Sprintf("没有 <%s> 这种算法", algorithm))
-    }
-    m.algorithm = a
-    return m
+    return &JWT{data: new(jwtData)}
 }
 
 // 设置令牌签发时间为当前时间
 func (m *JWT) SetIssuedAt() *JWT {
-    m.IssuedAt = time.Now().Unix()
+    m.data.IssuedAt = time.Now().Unix()
     return m
 }
 
 // 设置令牌签发时间
 func (m *JWT) SetIssuedAtTime(t time.Duration) *JWT {
-    m.IssuedAt = int64(t) / 1e9
+    m.data.IssuedAt = int64(t) / 1e9
     return m
 }
 
 // 设置令牌一段时间后生效(纳秒
 func (m *JWT) SetAfter(t int64) *JWT {
-    m.NotBefore = time.Now().Add(time.Duration(t)).Unix()
+    m.data.NotBefore = time.Now().Add(time.Duration(t)).Unix()
     return m
 }
 
 // 设置令牌指定生效时间
 func (m *JWT) SetAfterTime(t time.Duration) *JWT {
-    m.NotBefore = int64(t) / 1e9
+    m.data.NotBefore = int64(t) / 1e9
     return m
 }
 
 // 设置令牌一段时间后失效(纳秒
 func (m *JWT) SetExpires(t int64) *JWT {
-    m.ExpiresAt = time.Now().Add(time.Duration(t)).Unix()
+    m.data.ExpiresAt = time.Now().Add(time.Duration(t)).Unix()
     return m
 }
 
 // 设置令牌指定失效时间
 func (m *JWT) SetExpiresTime(t time.Duration) *JWT {
-    m.ExpiresAt = int64(t) / 1e9
+    m.data.ExpiresAt = int64(t) / 1e9
     return m
 }
 
-// 获取jwt签名后的数据
-func (m *JWT) GetToken(a interface{}) (string, error) {
-    m.A = a
-    token := jwt.NewWithClaims(m.algorithm, m)
-    return token.SignedString(m.secret)
+// 根据秘钥将对象制作为token
+func (m *JWT) MakeToken(payload interface{}, secret string, algorithm ...Algorithm) (string, error) {
+    var alg jwt.SigningMethod
+    if len(algorithm) > 0 {
+        alg = algorithmMapp[algorithm[0]]
+    } else {
+        alg = algorithmMapp[DefaultAlgorithm]
+    }
+
+    if alg == nil {
+        panic(fmt.Sprintf("没有 <%s> 这种算法", algorithm))
+    }
+
+    m.data.Payload = payload
+    token := &jwt.Token{
+        Header: map[string]interface{}{
+            "typ": "zjwt",
+            "alg": alg.Alg(),
+        },
+        Claims: m.data,
+        Method: alg,
+    }
+    return token.SignedString([]byte(secret))
 }
 
-func (m *JWT) parser(token string, a interface{}, valid bool) error {
-    m.A = a
-    parser := &jwt.Parser{ValidMethods: []string{m.algorithm.Alg()}, SkipClaimsValidation: !valid}
-    _, err := parser.ParseWithClaims(token, m, func(token *jwt.Token) (interface{}, error) {
-        return m.secret, nil
+func (m *JWT) parser(token, secret string, outPtr interface{}, validAlgorithms ...Algorithm) error {
+    m.data.Payload = outPtr
+
+    if len(validAlgorithms) == 0 {
+        validAlgorithms = allAlgorithms
+    }
+    algorithms := make([]string, len(validAlgorithms))
+    for i, a := range validAlgorithms {
+        algorithms[i] = string(a)
+    }
+
+    parser := &jwt.Parser{ValidMethods: algorithms, SkipClaimsValidation: true}
+    _, err := parser.ParseWithClaims(token, m.data, func(token *jwt.Token) (interface{}, error) {
+        return []byte(secret), nil
     })
     return err
 }
 
 // 解析jwt数据
-func (m *JWT) Parser(token string, a interface{}) error {
-    return m.parser(token, a, false)
+func (m *JWT) Parser(token, secret string, outPtr interface{}, validAlgorithms ...Algorithm) error {
+    return m.parser(token, secret, outPtr, validAlgorithms...)
 }
 
 // 解析jwt数据并验证使用时间
-func (m *JWT) ParserAndValid(token string, a interface{}) error {
-    return m.parser(token, a, true)
+func (m *JWT) ParserAndValid(token, secret string, outPtr interface{}, validAlgorithms ...Algorithm) error {
+    err := m.parser(token, secret, outPtr, validAlgorithms...)
+    if err != nil {
+        return err
+    }
+    return m.Valid()
 }
 
-// 验证令牌有效时间
+// 验证令牌的签发时间, 生效时间, 到期时间
 func (m *JWT) Valid() error {
-    return m.StandardClaims.Valid()
+    return m.data.Valid()
+}
+
+// 注册自定义算法
+func RegistryAlgorithm(algorithm jwt.SigningMethod) {
+    name := Algorithm(algorithm.Alg())
+    l := len(algorithmMapp)
+
+    algorithmMapp[name] = algorithm
+
+    if len(algorithmMapp) > l {
+        allAlgorithms = append(allAlgorithms, name)
+    }
+}
+
+// 根据秘钥将对象制作为token
+func MakeToken(payload interface{}, secret string, algorithm ...Algorithm) (string, error) {
+    return New().MakeToken(payload, secret, algorithm...)
+}
+
+// 解析并验证token
+func ParserAndValid(token, secret string, outPtr interface{}, validAlgorithms ...Algorithm) error {
+    return New().ParserAndValid(token, secret, outPtr, validAlgorithms...)
 }

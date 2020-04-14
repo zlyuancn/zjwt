@@ -9,26 +9,13 @@
 # 文档
 [godoc](https://godoc.org/github.com/zlyuancn/zjwt)
 
-# 示例
+# 快速使用
 
 ```go
-type AA struct {
-    A string
-}
+    token, _ := zjwt.MakeToken("123", "your_secret")
+    fmt.Println(token)
 
-func main() {
-    a := &AA{
-        A: "123",
-    }
-    s, _ := zjwt.New().GetToken(a)
-    fmt.Println(s)
-
-    b := new(AA)
-    err := zjwt.New().ParserAndValid(s, b)
-    if err != nil {
-        panic(err)
-    }
-
-    fmt.Println(b)
-}
+    var result string
+    _ = zjwt.ParserAndValid(token, "your_secret", &result)
+    fmt.Println(result)
 ```
