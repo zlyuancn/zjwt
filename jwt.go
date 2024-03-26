@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
@@ -51,53 +51,80 @@ var algorithmMap = map[Algorithm]jwt.SigningMethod{
 	RS512: jwt.SigningMethodRS512,
 }
 
-type jwtData struct {
-	jwt.StandardClaims
-	Payload interface{} `json:"a"`
+type Claims struct {
+	Exp     int64
+	Nbf     int64
+	Iat     int64
+	Payload interface{}
 }
 
+func (m *Claims) GetExpirationTime() (*jwt.NumericDate, error) {
+	if m.Exp == 0 {
+		return nil, nil
+	}
+	return &jwt.NumericDate{time.Unix(m.Exp, 0)}, nil
+}
+func (m *Claims) GetNotBefore() (*jwt.NumericDate, error) {
+	if m.Nbf == 0 {
+		return nil, nil
+	}
+	return &jwt.NumericDate{time.Unix(m.Nbf, 0)}, nil
+}
+func (m *Claims) GetIssuedAt() (*jwt.NumericDate, error) {
+	if m.Iat == 0 {
+		return nil, nil
+	}
+	return &jwt.NumericDate{time.Unix(m.Iat, 0)}, nil
+}
+
+func (m *Claims) GetAudience() (jwt.ClaimStrings, error) { return []string{}, nil }
+func (m *Claims) GetIssuer() (string, error)             { return "", nil }
+func (m *Claims) GetSubject() (string, error)            { return "", nil }
+
 type JWT struct {
-	data *jwtData
+	Claims *Claims
 }
 
 // 创建一个jwt
 func New() *JWT {
-	return &JWT{data: new(jwtData)}
+	return &JWT{
+		Claims: &Claims{},
+	}
 }
 
 // 设置令牌签发时间为当前时间
 func (m *JWT) SetIssuedAt() *JWT {
-	m.data.IssuedAt = time.Now().Unix()
+	m.Claims.Iat = time.Now().Unix()
 	return m
 }
 
 // 设置令牌签发时间为指定时间
 func (m *JWT) SetIssuedAtTime(t time.Time) *JWT {
-	m.data.IssuedAt = t.Unix()
+	m.Claims.Iat = t.Unix()
 	return m
 }
 
 // 设置令牌一段时间后生效
 func (m *JWT) SetAfter(t time.Duration) *JWT {
-	m.data.NotBefore = time.Now().Add(t).Unix()
+	m.Claims.Nbf = time.Now().Add(t).Unix()
 	return m
 }
 
 // 设置令牌指定生效时间
 func (m *JWT) SetAfterTime(t time.Time) *JWT {
-	m.data.NotBefore = t.Unix()
+	m.Claims.Nbf = t.Unix()
 	return m
 }
 
 // 设置令牌一段时间后失效
 func (m *JWT) SetExpires(t time.Duration) *JWT {
-	m.data.ExpiresAt = time.Now().Add(t).Unix()
+	m.Claims.Exp = time.Now().Add(t).Unix()
 	return m
 }
 
 // 设置令牌指定失效时间
 func (m *JWT) SetExpiresTime(t time.Time) *JWT {
-	m.data.ExpiresAt = t.Unix()
+	m.Claims.Exp = t.Unix()
 	return m
 }
 
@@ -114,20 +141,15 @@ func (m *JWT) MakeToken(payload interface{}, secret string, algorithm ...Algorit
 		panic(fmt.Sprintf("没有 <%s> 这种算法", algorithm))
 	}
 
-	m.data.Payload = payload
-	token := &jwt.Token{
-		Header: map[string]interface{}{
-			"typ": "zjwt",
-			"alg": alg.Alg(),
-		},
-		Claims: m.data,
-		Method: alg,
-	}
+	//m.Claims["a"] = payload
+	m.Claims.Payload = payload
+	token := jwt.NewWithClaims(alg, m.Claims)
 	return token.SignedString([]byte(secret))
 }
 
 func (m *JWT) parser(token, secret string, outPtr interface{}, validAlgorithms ...Algorithm) error {
-	m.data.Payload = outPtr
+	//m.Claims["a"] = outPtr
+	m.Claims.Payload = outPtr
 
 	if len(validAlgorithms) == 0 {
 		validAlgorithms = []Algorithm{DefaultAlgorithm}
@@ -137,8 +159,8 @@ func (m *JWT) parser(token, secret string, outPtr interface{}, validAlgorithms .
 		algorithms[i] = string(a)
 	}
 
-	parser := &jwt.Parser{ValidMethods: algorithms, SkipClaimsValidation: true}
-	_, err := parser.ParseWithClaims(token, m.data, func(token *jwt.Token) (interface{}, error) {
+	parser := jwt.NewParser(jwt.WithValidMethods(algorithms), jwt.WithoutClaimsValidation())
+	_, err := parser.ParseWithClaims(token, m.Claims, func(token *jwt.Token) (interface{}, error) {
 		return []byte(secret), nil
 	})
 	return err
@@ -160,7 +182,8 @@ func (m *JWT) ParserAndValid(token, secret string, outPtr interface{}, validAlgo
 
 // 验证令牌的签发时间, 生效时间, 到期时间
 func (m *JWT) Valid() error {
-	return m.data.Valid()
+	validator := jwt.NewValidator()
+	return validator.Validate(m.Claims)
 }
 
 // 注册自定义算法
@@ -172,6 +195,11 @@ func RegistryAlgorithm(algorithm jwt.SigningMethod) {
 // 根据秘钥将对象制作为token
 func MakeToken(payload interface{}, secret string, algorithm ...Algorithm) (string, error) {
 	return New().MakeToken(payload, secret, algorithm...)
+}
+
+// 解析
+func Parser(token, secret string, outPtr interface{}, validAlgorithms ...Algorithm) error {
+	return New().Parser(token, secret, outPtr, validAlgorithms...)
 }
 
 // 解析并验证token

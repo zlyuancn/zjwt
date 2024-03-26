@@ -12,7 +12,7 @@
 # 快速使用
 
 ```go
-    token, _ := zjwt.MakeToken("123", "your_secret")
+    token, _ := zjwt.MakeToken("data", "your_secret")
     fmt.Println(token)
 
     var result string
